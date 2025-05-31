@@ -1,41 +1,48 @@
 /* ==========================================================================
-   styles.css for “Image Annotation Tool (Zoom + Classes)”
+   styles.css for “Image Annotation (Zoom + Right‐Pane Annotations)”
    ========================================================================== */
 
-/* 1) Container / Layout */
+/* 1) Entire viewport reset */
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: #f3f4f6;
+  font-family: sans-serif;
+}
+
+/* 2) Main container: flex with sidebar + right pane */
 .container {
   display: flex;
   height: 100vh;
   width: 100vw;
   overflow: hidden;
-  font-family: sans-serif;
 }
 
-/* 2) Sidebar Styling */
+/* 3) LEFT SIDEBAR styling */
 .sidebar {
-  width: 280px;            /* slightly narrower than 300px */
+  width: 280px;            /* fixed width for sidebar */
   min-width: 240px;
   max-width: 300px;
   overflow-y: auto;
   border-right: 1px solid #e5e7eb;
   background: #fff;
   font-size: 0.875rem;     /* base = 14px */
+  flex-shrink: 0;
 }
 
-/* 3) Compact label text */
-.label-text {
-  word-break: break-word;
-  max-width: 180px;
-  font-size: 0.85rem;
-  line-height: 1.2;
-}
-
-/* 4) Class list / annotation list items */
+/* 4) CLASS LIST ITEMS in sidebar */
 .class-item {
   display: flex;
   align-items: center;
   gap: 6px;
+  padding: 0.5rem;
+  margin-bottom: 0.25rem;
+  border-radius: 0.25rem;
+  background: #fafafa;
 }
+
+/* small colored square for class color */
 .color-box {
   width: 16px;
   height: 16px;
@@ -43,84 +50,139 @@
   flex-shrink: 0;
 }
 
-/* 5) Smaller gray helper text */
-.text-gray-500 {
-  font-size: 0.85rem;
-}
-
-/* 6) Inputs and buttons in sidebar */
-input, select, button {
-  font-size: 0.875rem;    /* unify at 14px */
-}
-button {
-  padding-top: 0.4rem;    /* 6px */
-  padding-bottom: 0.4rem; /* 6px */
-}
-
-/* 7) Compact list items */
-#annotationList li,
-#classList li {
-  padding: 0.5rem;
-  margin-bottom: 0.25rem;
-  border-radius: 0.25rem;
-}
-
-/* 8) Scrollbars for long lists */
-#annotationList {
-  max-height: 240px;
-  overflow-y: auto;
-}
+/* 5) SCROLLABLE lists inside sidebar */
 #classList {
   max-height: 200px;
   overflow-y: auto;
 }
-
-/* 9) The right‐hand “canvas + toolbar” wrapper */
-.canvas-wrapper {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
+#annotationList {
+  max-height: 240px;
+  overflow-y: auto;
 }
 
-/* 10) Toolbar (Zoom slider) */
+/* 6) SIDEBAR inputs/buttons at 14px */
+input, select, button {
+  font-size: 0.875rem;
+}
+button {
+  padding-top: 0.4rem;    /* 6px top/bottom */
+  padding-bottom: 0.4rem; /* 6px top/bottom */
+}
+
+/* 7) RIGHT PANE: flexible container that holds canvasArea + annotationPanel */
+.rightPane {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+  min-width: 0; /* Prevent flex overflow */
+}
+
+/* 8) CANVAS AREA (left half of rightPane) */
+.canvasArea {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  background: #fafafa;
+  min-width: 0; /* Prevent flex overflow */
+}
+
+/* 9) ZOOM TOOLBAR at the top of canvasArea */
 .toolbar {
-  width: 100%;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+  display: flex;
+  align-items: center;
+  padding: 0.5rem 1rem;
   background: #fff;
+  border-bottom: 1px solid #e5e7eb;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
 }
 #zoomSlider {
   width: 140px;
 }
 #zoomValue {
   min-width: 50px;
+  text-align: right;
 }
 
-/* 11) Scrollable Canvas Container */
+/* 10) SCROLLABLE canvas container */
 .canvas-container {
-  position: absolute;
-  top: 48px;      /* height of the toolbar (approx). Adjust if you change toolbar’s height */
-  bottom: 0;
-  left: 280px;    /* same as sidebar width */
-  right: 0;
+  flex: 1;
+  overflow: auto;       /* allows pan/scroll when zoomed */
   background: #f9fafb;
-  overflow: auto; /* needed to scroll/pan a large canvas */
+  position: relative; /* Ensure canvas stays contained */
 }
 
-/* 12) The <canvas> element */
+/* 11) The <canvas> element itself */
 canvas {
-  display: block;         /* remove default inline‐gap */
-  transform-origin: 0 0;  /* zoom anchor at top-left */
+  display: block;         /* removes default inline‐gap */
+  transform-origin: 0 0;  /* top-left corner is zoom anchor */
+  max-width: none; /* Prevent canvas from causing overflow */
 }
-
-/* 13) Hide the browser’s default outline on canvas, if any */
 canvas:focus {
-  outline: none;
+  outline: none;          /* remove default focus outline */
 }
 
-/* 14) Basic body reset */
-html, body {
-  margin: 0;
-  padding: 0;
-  height: 100%;
+/* 12) ANNOTATIONS PANEL (rightmost column) */
+.annotationPanel {
+  width: 16rem;           /* 256px */
+  min-width: 16rem;       /* Ensure it never shrinks */
+  min-height: 100%;       /* Ensure full height */
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+  border-left: 1px solid #e5e7eb;
+  font-size: 0.875rem;
+}
+
+/* 13) HEADER of Annotations panel */
+.annotationPanel > h3 {
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid #e5e7eb;
+  background: #f9fafb;
+}
+
+/* 14) LIST ITEMS in the Annotations panel */
+#annotationList li {
+  background: #fafafa;
+  border: 1px solid #e5e7eb;
+  border-radius: 0.25rem;
+  padding: 0.5rem;
+  margin-bottom: 0.25rem;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 15) MAKE ANNOTATION PANEL SCROLLABLE */
+#annotationList {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0.5rem;
+}
+
+/* 16) EDIT FORM APPEARS AT BOTTOM OF PANEL */
+#editForm {
+  border-top: 1px solid #e5e7eb;
   background: #f3f4f6;
+}
+
+/* 17) Sidebar helper text (small, gray) */
+.text-gray-500 {
+  font-size: 0.85rem;
+}
+
+/* 18) Compact label text (both in list and canvas) */
+.label-text {
+  word-break: break-word;
+  max-width: 180px;
+  font-size: 0.85rem;
+  line-height: 1.2;
+}
+
+/* 19) Enhanced placeholder for empty annotation list */
+#annotationList .text-gray-500 {
+  font-size: 0.875rem;
+  padding: 0.5rem;
+  text-align: center;
+  background: #f9fafb;
+  border-radius: 0.25rem;
 }
