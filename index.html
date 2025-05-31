@@ -71,6 +71,23 @@
             class="mr-2"
           />
           <span id="zoomValue" class="w-12 text-sm font-semibold">100%</span>
+
+          <!-- Delete Selected Annotation (disabled until one is selected) -->
+          <button
+            id="deleteSelected"
+            class="ml-2 bg-red-500 text-white rounded hover:bg-red-600 px-2 py-1 text-sm"
+            disabled
+          >
+            Delete
+          </button>
+
+          <!-- Night Mode Toggle -->
+          <button
+            id="toggleNight"
+            class="ml-auto bg-gray-200 text-black rounded hover:bg-gray-300 px-2 py-1 text-sm"
+          >
+            Night Mode
+          </button>
         </div>
 
         <!-- Scrollable Canvas Container -->
@@ -145,6 +162,9 @@
     const saveEditButton  = document.getElementById('saveEdit');
     const cancelEditButton= document.getElementById('cancelEdit');
 
+    const deleteSelectedBtn = document.getElementById('deleteSelected');
+    const toggleNightBtn    = document.getElementById('toggleNight');
+
     /********************************************
      *  STATE VARIABLES
      ********************************************/
@@ -165,6 +185,55 @@
 
     // Which class is selected for new drawings?
     let selectedClass = null;
+
+    // For moving annotations
+    let movingAnn = null;          // the annotation object being moved (if any)
+    let moveOffset = { x: 0, y: 0 }; // offset from mouse to ann.x/ann.y
+
+    // For undo (Ctrl+Z)
+    let historyStack = []; // each entry is a deep copy of “annotations”
+
+    // For “delete selected” in top toolbar
+    let selectedAnnotationId = null;
+
+    /********************************************
+     *  HELPERS: HISTORY / UNDO
+     ********************************************/
+    function pushHistory() {
+      // Deep‐copy current annotations array
+      const snapshot = annotations.map(ann => ({ ...ann }));
+      historyStack.push(snapshot);
+      if (historyStack.length > 50) historyStack.shift();
+    }
+
+    function undo() {
+      if (historyStack.length === 0) return;
+      const prev = historyStack.pop();
+      annotations = prev.map(ann => ({ ...ann }));
+      selectedAnnotationId = null;
+      deleteSelectedBtn.disabled = true;
+      updateAnnotationListUI();
+      redrawCanvas();
+    }
+
+    /********************************************
+     *  HELPERS: FIND ANNOTATION UNDER A POINT
+     ********************************************/
+    function findAnnotationAt(imgX, imgY) {
+      // Return the topmost annotation whose bounds contain (imgX, imgY)
+      for (let i = annotations.length - 1; i >= 0; i--) {
+        const ann = annotations[i];
+        if (
+          imgX >= ann.x &&
+          imgX <= ann.x + ann.width &&
+          imgY >= ann.y &&
+          imgY <= ann.y + ann.height
+        ) {
+          return ann;
+        }
+      }
+      return null;
+    }
 
     /********************************************
      *  1) LOAD IMAGE LIST (WITH OCR ANNOTATIONS)
@@ -195,7 +264,7 @@
     }
 
     /********************************************
-     * 2) LOAD CLASSES FROM DATABASE
+     *  2) LOAD CLASSES FROM DATABASE
      ********************************************/
     async function loadClasses() {
       try {
@@ -211,7 +280,7 @@
     }
 
     /********************************************
-     * 3) UPDATE CLASS LIST PANEL
+     *  3) UPDATE CLASS LIST PANEL
      ********************************************/
     function updateClassListUI() {
       classListUL.innerHTML = '';
@@ -242,7 +311,7 @@
     }
 
     /********************************************
-     * 4) SELECT A CLASS FOR NEW ANNOTATIONS
+     *  4) SELECT A CLASS FOR NEW ANNOTATIONS
      ********************************************/
     window.selectClass = (id) => {
       selectedClass = classes.find(c => c.id === id);
@@ -258,7 +327,7 @@
     };
 
     /********************************************
-     * 5) ADD NEW CLASS (POST TO /api/classes)
+     *  5) ADD NEW CLASS (POST TO /api/classes)
      ********************************************/
     addClassButton.addEventListener('click', async () => {
       const name = classNameInput.value.trim();
@@ -286,7 +355,7 @@
     });
 
     /********************************************
-     * 6) IMAGE SELECTION HANDLER
+     *  6) IMAGE SELECTION HANDLER
      ********************************************/
     imageSelect.addEventListener('change', async () => {
       const file = imageSelect.value;
@@ -294,6 +363,8 @@
         image = null;
         annotations = [];
         ctx.clearRect(0, 0, canvas.width, canvas.height);
+        selectedAnnotationId = null;
+        deleteSelectedBtn.disabled = true;
         updateAnnotationListUI();
         return;
       }
@@ -333,6 +404,8 @@
                 isDB: true
               }))
             : [];
+          selectedAnnotationId = null;
+          deleteSelectedBtn.disabled = true;
           updateAnnotationListUI();
           redrawCanvas();
           // Debug: Log annotationPanel dimensions
@@ -348,6 +421,8 @@
           image = null;
           annotations = [];
           ctx.clearRect(0, 0, canvas.width, canvas.height);
+          selectedAnnotationId = null;
+          deleteSelectedBtn.disabled = true;
           updateAnnotationListUI();
         };
         image.src = '/' + file;
@@ -356,6 +431,8 @@
         image = null;
         annotations = [];
         ctx.clearRect(0, 0, canvas.width, canvas.height);
+        selectedAnnotationId = null;
+        deleteSelectedBtn.disabled = true;
         updateAnnotationListUI();
         alert('Failed to load image or annotations: ' + err.message);
       } finally {
@@ -364,7 +441,7 @@
     });
 
     /********************************************
-     * 7) ZOOM SLIDER HANDLER
+     *  7) ZOOM SLIDER HANDLER
      ********************************************/
     zoomSlider.addEventListener('input', () => {
       zoom = parseFloat(zoomSlider.value);
@@ -375,7 +452,7 @@
     });
 
     /********************************************
-     * 8) DRAWING: Mouse Events on Canvas
+     *  8) DRAWING: Mouse Events on Canvas
      ********************************************/
     canvas.addEventListener('mousedown', (e) => {
       if (!image) return;
@@ -388,6 +465,30 @@
     });
 
     canvas.addEventListener('mousemove', (e) => {
+      // If moving an annotation, adjust its position instead of drawing
+      if (movingAnn && image) {
+        const rect = canvas.getBoundingClientRect();
+        const imgX = (e.clientX - rect.left) / zoom;
+        const imgY = (e.clientY - rect.top) / zoom;
+
+        movingAnn.x = imgX - moveOffset.x;
+        movingAnn.y = imgY - moveOffset.y;
+
+        // Clamp within image bounds
+        if (movingAnn.x < 0) movingAnn.x = 0;
+        if (movingAnn.y < 0) movingAnn.y = 0;
+        if (movingAnn.x + movingAnn.width > image.naturalWidth) {
+          movingAnn.x = image.naturalWidth - movingAnn.width;
+        }
+        if (movingAnn.y + movingAnn.height > image.naturalHeight) {
+          movingAnn.y = image.naturalHeight - movingAnn.height;
+        }
+
+        redrawCanvas();
+        return;
+      }
+
+      // Normal drawing
       if (!isDrawing || !image) return;
       const rect = canvas.getBoundingClientRect();
       const x = (e.clientX - rect.left) / zoom;
@@ -405,6 +506,9 @@
       if (!isDrawing || !image) return;
       isDrawing = false;
       if (currentRect.width > 5 && currentRect.height > 5) {
+        // RECORD STATE FOR UNDO
+        pushHistory();
+
         const label = prompt('Enter label for this annotation:') || '';
         const id = `user_${Date.now()}`;
         annotations.push({
@@ -417,6 +521,8 @@
           classId: selectedClass ? selectedClass.id : null,
           isDB: false
         });
+        selectedAnnotationId = null;
+        deleteSelectedBtn.disabled = true;
         updateAnnotationListUI();
       }
       currentRect = null;
@@ -424,7 +530,7 @@
     });
 
     /********************************************
-     * 9) REDRAW CANVAS (IMAGE + ALL ANNOTATIONS)
+     *  9) DRAW/REDRAW CANVAS (IMAGE + ALL ANNOTATIONS)
      ********************************************/
     function redrawCanvas() {
       if (!image) {
@@ -494,13 +600,15 @@
     }
 
     /********************************************
-     * 10) UPDATE ANNOTATION LIST (RIGHT PANEL)
+     *  10) UPDATE ANNOTATION LIST (RIGHT PANEL)
      ********************************************/
     function updateAnnotationListUI() {
       annotationListUL.innerHTML = '';
       if (annotations.length === 0) {
         annotationListUL.innerHTML =
           '<p class="text-gray-500 text-sm">No annotations yet.</p>';
+        selectedAnnotationId = null;
+        deleteSelectedBtn.disabled = true;
         return;
       }
       annotations.forEach(ann => {
@@ -510,6 +618,13 @@
           : (cls ? cls.color : '#00FF00');
         const li = document.createElement('li');
         li.className = 'border rounded p-2 flex flex-col bg-gray-50';
+
+        // Highlight if selected
+        if (ann.id === selectedAnnotationId) {
+          li.style.border = '2px solid #FFAA00';
+          li.style.backgroundColor = '#FEF8E7';
+        }
+
         li.innerHTML = `
           <div class="flex items-center mb-1">
             <span class="w-3 h-3 mr-2" style="background-color: ${colorBox}; border:1px solid #000;"></span>
@@ -539,12 +654,21 @@
             </button>
           </div>
         `;
+
+        // Select on click (but avoid inner buttons)
+        li.addEventListener('click', (evt) => {
+          if (evt.target.tagName.toLowerCase() === 'button') return;
+          selectedAnnotationId = ann.id;
+          deleteSelectedBtn.disabled = false;
+          updateAnnotationListUI();
+        });
+
         annotationListUL.appendChild(li);
       });
     }
 
     /********************************************
-     * 11) EDIT / DELETE HANDLERS
+     *  11) EDIT / DELETE HANDLERS
      ********************************************/
     window.editAnnotation = (id) => {
       const ann = annotations.find(a => a.id === id);
@@ -556,6 +680,7 @@
     };
 
     saveEditButton.addEventListener('click', () => {
+      pushHistory();
       annotations = annotations.map(ann =>
         ann.id === editingId
           ? { ...ann,
@@ -576,13 +701,81 @@
     });
 
     window.deleteAnnotation = (id) => {
+      pushHistory();
       annotations = annotations.filter(ann => ann.id !== id);
+      if (selectedAnnotationId === id) {
+        selectedAnnotationId = null;
+        deleteSelectedBtn.disabled = true;
+      }
       updateAnnotationListUI();
       redrawCanvas();
     };
 
+    // Delete from top toolbar
+    deleteSelectedBtn.addEventListener('click', () => {
+      if (!selectedAnnotationId) return;
+      pushHistory();
+      annotations = annotations.filter(ann => ann.id !== selectedAnnotationId);
+      selectedAnnotationId = null;
+      deleteSelectedBtn.disabled = true;
+      updateAnnotationListUI();
+      redrawCanvas();
+    });
+
     /********************************************
-     * 12) INITIALIZATION
+     *  12) MOVE ANNOTATION: dblclick + drag
+     ********************************************/
+    canvas.addEventListener('dblclick', (e) => {
+      if (!image) return;
+
+      const rect = canvas.getBoundingClientRect();
+      const imgX = (e.clientX - rect.left) / zoom;
+      const imgY = (e.clientY - rect.top) / zoom;
+
+      const ann = findAnnotationAt(imgX, imgY);
+      if (!ann) return;
+
+      // RECORD STATE FOR UNDO
+      pushHistory();
+
+      movingAnn = ann;
+      moveOffset.x = imgX - ann.x;
+      moveOffset.y = imgY - ann.y;
+    });
+
+    // Window mouseup completes any ongoing move
+    window.addEventListener('mouseup', () => {
+      if (movingAnn) {
+        movingAnn = null;
+        updateAnnotationListUI();
+        redrawCanvas();
+      }
+    });
+
+    /********************************************
+     *  13) UNDO: Listen for Ctrl+Z
+     ********************************************/
+    window.addEventListener('keydown', (e) => {
+      if (e.ctrlKey && (e.key === 'z' || e.key === 'Z')) {
+        e.preventDefault();
+        undo();
+      }
+    });
+
+    /********************************************
+     *  14) NIGHT-MODE TOGGLE
+     ********************************************/
+    toggleNightBtn.addEventListener('click', () => {
+      document.body.classList.toggle('dark-mode');
+      if (document.body.classList.contains('dark-mode')) {
+        toggleNightBtn.textContent = 'Light Mode';
+      } else {
+        toggleNightBtn.textContent = 'Night Mode';
+      }
+    });
+
+    /********************************************
+     *  15) INITIALIZATION
      ********************************************/
     // Ensure canvas container can scroll/pan when zoomed
     container.style.overflow = 'auto';

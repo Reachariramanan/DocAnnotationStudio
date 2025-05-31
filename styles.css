@@ -150,6 +150,7 @@ canvas:focus {
   margin-bottom: 0.25rem;
   display: flex;
   flex-direction: column;
+  cursor: pointer;
 }
 
 /* 15) MAKE ANNOTATION PANEL SCROLLABLE */
@@ -185,4 +186,43 @@ canvas:focus {
   text-align: center;
   background: #f9fafb;
   border-radius: 0.25rem;
+}
+
+/* 20) NIGHT-MODE STYLES */
+body.dark-mode {
+  background: #1f1f1f;
+  color: #e0e0e0;
+}
+
+body.dark-mode .sidebar,
+body.dark-mode .annotationPanel,
+body.dark-mode .toolbar {
+  background: #2b2b2b;
+  color: #e0e0e0;
+  border-color: #444;
+}
+
+body.dark-mode .class-item,
+body.dark-mode #annotationList li,
+body.dark-mode #editForm {
+  background: #333;
+  border-color: #555;
+  color: #e0e0e0;
+}
+
+body.dark-mode input,
+body.dark-mode select,
+body.dark-mode button {
+  background: #3a3a3a;
+  color: #e0e0e0;
+  border: 1px solid #555;
+}
+
+body.dark-mode canvas {
+  background: #2b2b2b;
+}
+
+/* Override hover styles in dark mode */
+body.dark-mode button:hover {
+  background: #505050;
 }
