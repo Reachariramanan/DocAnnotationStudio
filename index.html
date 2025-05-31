@@ -1,0 +1,559 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Image Annotation Tool (Zoom + Classes)</title>
+  <!-- Tailwind for basic utility classes -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Link to our external CSS -->
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body class="bg-gray-100">
+  <div class="container">
+    <!-- ===========================
+         LEFT SIDEBAR (Image & Classes & Annotations)
+         =========================== -->
+    <div class="sidebar p-3">
+      <h2 class="text-lg font-bold mb-3">Image Annotation</h2>
+
+      <!-- Image Selector -->
+      <div class="mb-3">
+        <label class="block text-sm font-medium mb-1">Select Image</label>
+        <select id="imageSelect" class="w-full p-2 border rounded text-sm">
+          <option value="">Loading…</option>
+        </select>
+      </div>
+      <div id="loading" class="hidden text-gray-500 mb-3">Loading…</div>
+
+      <!-- Class Management -->
+      <div class="mb-4">
+        <h3 class="text-md font-semibold mb-2">Annotation Classes</h3>
+        <div class="mb-2">
+          <input
+            type="text"
+            id="className"
+            class="w-full p-2 border rounded mb-1 text-sm"
+            placeholder="Class name"
+          />
+          <input
+            type="color"
+            id="classColor"
+            class="w-full p-1 border rounded mb-1"
+          />
+          <button
+            id="addClass"
+            class="w-full bg-blue-500 text-white rounded hover:bg-blue-600 text-sm"
+          >
+            Add Class
+          </button>
+        </div>
+        <ul id="classList" class="space-y-1"></ul>
+      </div>
+
+      <!-- Annotation List -->
+      <h3 class="text-md font-semibold mb-2">Annotations</h3>
+      <ul id="annotationList" class="space-y-1"></ul>
+
+      <!-- Edit Form (initially hidden) -->
+      <div id="editForm" class="hidden mt-3 p-3 border rounded">
+        <h3 class="text-md font-semibold mb-2">Edit Annotation</h3>
+        <input
+          type="text"
+          id="editLabel"
+          class="w-full p-2 border rounded mb-2 text-sm"
+          placeholder="New label"
+        />
+        <select
+          id="editClass"
+          class="w-full p-2 border rounded mb-2 text-sm"
+        >
+          <option value="">Select class</option>
+        </select>
+        <div class="flex space-x-2">
+          <button
+            id="saveEdit"
+            class="bg-green-500 text-white rounded hover:bg-green-600 px-3 text-sm"
+          >
+            Save
+          </button>
+          <button
+            id="cancelEdit"
+            class="bg-gray-500 text-white rounded hover:bg-gray-600 px-3 text-sm"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===========================
+         RIGHT: Canvas Area (Zoom + Scroll + Canvas)
+         =========================== -->
+    <div class="canvas-wrapper">
+      <!-- Top Toolbar: Zoom Slider -->
+      <div class="toolbar flex items-center px-4 py-2 bg-white border-b">
+        <label for="zoomSlider" class="mr-2 text-sm font-medium">Zoom:</label>
+        <input
+          type="range"
+          id="zoomSlider"
+          min="0.1"
+          max="3"
+          step="0.1"
+          value="1"
+          class="mr-2"
+        />
+        <span id="zoomValue" class="w-12 text-sm font-semibold">100%</span>
+      </div>
+
+      <!-- Scrollable Canvas Container -->
+      <div id="canvasContainer" class="canvas-container">
+        <canvas id="canvas"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===========================
+       JAVASCRIPT LOGIC
+       =========================== -->
+  <script>
+    /********************************************
+     *  GLOBALS & ELEMENT REFERENCES
+     ********************************************/
+    const imageSelect = document.getElementById('imageSelect');
+    const zoomSlider  = document.getElementById('zoomSlider');
+    const zoomValue   = document.getElementById('zoomValue');
+    const canvas      = document.getElementById('canvas');
+    const ctx         = canvas.getContext('2d');
+    const container   = document.getElementById('canvasContainer');
+    const loading     = document.getElementById('loading');
+
+    const classNameInput = document.getElementById('className');
+    const classColorInput = document.getElementById('classColor');
+    const addClassButton = document.getElementById('addClass');
+    const classListUL = document.getElementById('classList');
+
+    const annotationListUL = document.getElementById('annotationList');
+    const editForm = document.getElementById('editForm');
+    const editLabelInput = document.getElementById('editLabel');
+    const editClassSelect = document.getElementById('editClass');
+    const saveEditButton = document.getElementById('saveEdit');
+    const cancelEditButton = document.getElementById('cancelEdit');
+
+    /********************************************
+     *  STATE VARIABLES
+     ********************************************/
+    let image = null;            // HTMLImageElement for the currently selected image
+    let zoom = 1;                // Current zoom (1 = 100%). Range = [0.1 .. 3]
+    let isDrawing = false;       // True while user is dragging to draw a new rect
+    let startXY = { x: 0, y: 0 };// Starting point (in image coords) for the current drag
+    let currentRect = null;      // { x, y, width, height } in image coords while drawing
+
+    // OCR annotations (loaded from DB) and user annotations share the same array,
+    // but we tag OCR ones with id starting with 'db_'
+    let annotations = [];  // Each item: { id, x, y, width, height, label, classId }
+
+    // Saved classes = [ { id, name, color } ]
+    let classes = [];
+
+    // Which annotation is currently in “edit” mode? (the id of that annotation)
+    let editingId = null;
+
+    // Which class is selected for new annotations? (null if none)
+    let selectedClass = null;
+
+    /********************************************
+     *  1) LOAD IMAGE LIST (with OCR ANNOTATIONS)
+     ********************************************/
+    async function loadImages() {
+      try {
+        loading.classList.remove('hidden');
+        const resp = await fetch('/api/images');
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const images = await resp.json();
+        imageSelect.innerHTML = '<option value="">-- Select an image --</option>';
+        images.forEach(imgObj => {
+          // imgObj.file is like "images/foo.jpg"
+          const fileName = imgObj.file.split('/').pop();
+          const opt = document.createElement('option');
+          opt.value = imgObj.file;
+          opt.textContent = fileName;
+          imageSelect.appendChild(opt);
+        });
+        if (images.length === 0) {
+          imageSelect.innerHTML = '<option value="">(No images found)</option>';
+        }
+      } catch (err) {
+        console.error('Error loading images:', err);
+        imageSelect.innerHTML = '<option value="">Failed to load</option>';
+      } finally {
+        loading.classList.add('hidden');
+      }
+    }
+
+    /********************************************
+     *  2) LOAD CLASSES
+     ********************************************/
+    async function loadClasses() {
+      try {
+        const resp = await fetch('/api/classes');
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        classes = await resp.json();
+        updateClassListUI();
+      } catch (err) {
+        console.error('Error loading classes:', err.message);
+        classListUL.innerHTML =
+          '<p class="text-red-500 text-sm">Failed to load classes</p>';
+      }
+    }
+
+    /********************************************
+     * 3) UPDATE CLASS LIST UI
+     ********************************************/
+    function updateClassListUI() {
+      classListUL.innerHTML = '';
+      editClassSelect.innerHTML = '<option value="">Select class</option>';
+      classes.forEach(cls => {
+        // Sidebar entry
+        const li = document.createElement('li');
+        li.className = 'class-item border rounded';
+        li.innerHTML = `
+          <span class="color-box" style="background-color: ${cls.color}"></span>
+          <span class="text-sm">${cls.name}</span>
+          <button onclick="selectClass('${cls.id}')"
+                  class="ml-auto bg-blue-500 text-white rounded hover:bg-blue-600 px-2 text-sm">
+            Select
+          </button>
+        `;
+        classListUL.appendChild(li);
+
+        // Also populate the <select> in the edit form
+        const opt = document.createElement('option');
+        opt.value = cls.id;
+        opt.textContent = cls.name;
+        editClassSelect.appendChild(opt);
+      });
+    }
+
+    /********************************************
+     * 4) SELECT CLASS FOR NEW ANNOTATIONS
+     ********************************************/
+    window.selectClass = (id) => {
+      selectedClass = classes.find(c => c.id === id);
+      // Highlight the chosen button
+      document.querySelectorAll('#classList button').forEach(btn => {
+        btn.classList.remove('bg-green-500', 'hover:bg-green-600');
+        btn.classList.add('bg-blue-500', 'hover:bg-blue-600');
+      });
+      const chosenBtn = document.querySelector(`button[onclick="selectClass('${id}')"]`);
+      if (chosenBtn) {
+        chosenBtn.classList.remove('bg-blue-500', 'hover:bg-blue-600');
+        chosenBtn.classList.add('bg-green-500', 'hover:bg-green-600');
+      }
+    };
+
+    /********************************************
+     * 5) ADD NEW CLASS HANDLER
+     ********************************************/
+    addClassButton.addEventListener('click', async () => {
+      const name = classNameInput.value.trim();
+      const color = classColorInput.value;
+      if (!name || !color) {
+        alert('Please enter a class name and choose a color');
+        return;
+      }
+      try {
+        const resp = await fetch('/api/classes', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name, color })
+        });
+        if (!resp.ok) throw new Error('Failed to save class');
+        const newCls = await resp.json();
+        classes.push(newCls);
+        updateClassListUI();
+        classNameInput.value = '';
+        classColorInput.value = '#000000';
+      } catch (err) {
+        console.error('Error saving class:', err.message);
+        alert('Failed to save class: ' + err.message);
+      }
+    });
+
+    /********************************************
+     * 6) IMAGE SELECTION HANDLER
+     ********************************************/
+    imageSelect.addEventListener('change', async () => {
+      const file = imageSelect.value;
+      if (!file) {
+        // Clear everything if no selection
+        image = null;
+        annotations = [];
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        annotationListUL.innerHTML = '';
+        return;
+      }
+
+      // Reset zoom to 1×
+      zoom = 1;
+      zoomSlider.value = '1';
+      zoomValue.textContent = '100%';
+      canvas.style.transform = `scale(${zoom})`;
+
+      // Fetch full list again so we have OCR data
+      try {
+        loading.classList.remove('hidden');
+        const resp = await fetch('/api/images');
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const images = await resp.json();
+        const selObj = images.find(o => o.file === file);
+        if (!selObj) {
+          throw new Error('Image metadata not found');
+        }
+
+        // Create new Image object and set canvas size to natural size
+        image = new Image();
+        image.onload = () => {
+          canvas.width = image.naturalWidth;
+          canvas.height = image.naturalHeight;
+
+          // Load OCR annotations (they already have id="db_…", x,y,width,height,label,color)
+          annotations = selObj.annotations.map(ann => ({
+            id: ann.id,
+            x: ann.x,
+            y: ann.y,
+            width: ann.width,
+            height: ann.height,
+            label: ann.label || '',
+            classId: null,   // user can assign a class later
+            isDB: true       // mark it as “DB‐loaded OCR”
+          }));
+          updateAnnotationListUI();
+          redrawCanvas();
+        };
+        image.onerror = () => {
+          console.error(`Failed to load image: ${file}`);
+          image = null;
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+        };
+        image.src = '/' + file; // e.g. "/images/foo.jpg"
+      } catch (err) {
+        console.error('Error loading image:', err.message);
+        image = null;
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+      } finally {
+        loading.classList.add('hidden');
+      }
+    });
+
+    /********************************************
+     * 7) ZOOM SLIDER HANDLER
+     ********************************************/
+    zoomSlider.addEventListener('input', () => {
+      zoom = parseFloat(zoomSlider.value);
+      const percent = Math.round(zoom * 100);
+      zoomValue.textContent = percent + '%';
+      canvas.style.transformOrigin = '0 0';
+      canvas.style.transform = `scale(${zoom})`;
+    });
+
+    /********************************************
+     * 8) MOUSE EVENTS ON CANVAS (DRAWS & UPDATES)
+     ********************************************/
+    canvas.addEventListener('mousedown', (e) => {
+      if (!image) return;
+      isDrawing = true;
+      const rect = canvas.getBoundingClientRect();
+      const x = (e.clientX - rect.left) / zoom;
+      const y = (e.clientY - rect.top) / zoom;
+      startXY = { x, y };
+      currentRect = { x, y, width: 0, height: 0 };
+    });
+
+    canvas.addEventListener('mousemove', (e) => {
+      if (!isDrawing || !image) return;
+      const rect = canvas.getBoundingClientRect();
+      const x = (e.clientX - rect.left) / zoom;
+      const y = (e.clientY - rect.top) / zoom;
+      currentRect = {
+        x: Math.min(startXY.x, x),
+        y: Math.min(startXY.y, y),
+        width: Math.abs(x - startXY.x),
+        height: Math.abs(y - startXY.y)
+      };
+      redrawCanvas();
+    });
+
+    canvas.addEventListener('mouseup', () => {
+      if (!isDrawing || !image) return;
+      isDrawing = false;
+      if (currentRect.width > 5 && currentRect.height > 5) {
+        const label = prompt('Enter label for this annotation:') || '';
+        const id = `user_${Date.now()}`;
+        annotations.push({
+          id,
+          x: currentRect.x,
+          y: currentRect.y,
+          width: currentRect.width,
+          height: currentRect.height,
+          label,
+          classId: selectedClass ? selectedClass.id : null,
+          isDB: false
+        });
+        updateAnnotationListUI();
+      }
+      currentRect = null;
+      redrawCanvas();
+    });
+
+    /********************************************
+     * 9) REDRAW ENTIRE CANVAS
+     ********************************************/
+    function redrawCanvas() {
+      if (!image) {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        return;
+      }
+
+      // 1) Clear and draw base image
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(image, 0, 0);
+
+      // 2) Draw all saved annotations
+      annotations.forEach(ann => {
+        // Decide color: red for OCR (isDB:true), else if class assigned use class.color, else green
+        let color = '#00FF00';
+        if (ann.isDB) {
+          color = '#FF0000';
+        } else if (ann.classId) {
+          const cls = classes.find(c => c.id === ann.classId);
+          if (cls) color = cls.color;
+        }
+        // Draw rectangle
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2;
+        ctx.strokeRect(ann.x, ann.y, ann.width, ann.height);
+        // Fill translucent
+        ctx.fillStyle = color + '33';
+        ctx.fillRect(ann.x, ann.y, ann.width, ann.height);
+
+        // Draw the label (word-wrap at maxWidth=200px)
+        ctx.fillStyle = 'black';
+        ctx.font = '14px Arial';
+        const maxW = 200;
+        const words = (ann.label || '').split(' ');
+        let line = '';
+        let yOff = ann.y - 16; // 16px above the rectangle
+        words.forEach(word => {
+          const testLine = line + word + ' ';
+          const metrics = ctx.measureText(testLine);
+          if (metrics.width > maxW && line) {
+            ctx.fillText(line, ann.x, yOff);
+            line = word + ' ';
+            yOff += 16;
+          } else {
+            line = testLine;
+          }
+        });
+        ctx.fillText(line, ann.x, yOff);
+      });
+
+      // 3) If currently drawing a new rectangle, draw it in blue
+      if (currentRect) {
+        ctx.strokeStyle = '#0000FF';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(
+          currentRect.x,
+          currentRect.y,
+          currentRect.width,
+          currentRect.height
+        );
+        ctx.fillStyle = '#0000FF33';
+        ctx.fillRect(
+          currentRect.x,
+          currentRect.y,
+          currentRect.width,
+          currentRect.height
+        );
+      }
+    }
+
+    /********************************************
+     * 10) UPDATE ANNOTATION LIST IN SIDEBAR
+     ********************************************/
+    function updateAnnotationListUI() {
+      annotationListUL.innerHTML = '';
+      if (annotations.length === 0) {
+        annotationListUL.innerHTML =
+          '<p class="text-gray-500 text-sm">No annotations yet.</p>';
+        return;
+      }
+      annotations.forEach(ann => {
+        const cls = classes.find(c => c.id === ann.classId);
+        const colorBox = ann.isDB ? '#FF0000' : (cls ? cls.color : '#00FF00');
+        const li = document.createElement('li');
+        li.className = 'border rounded p-2';
+        li.innerHTML = `
+          <p><strong>Label:</strong> <span class="label-text">${ann.label || 'No label'}</span></p>
+          <p><strong>Class:</strong> ${cls ? cls.name : (ann.isDB ? '[OCR]' : 'None')}</p>
+          <p><strong>Pos:</strong> (${Math.round(ann.x)}, ${Math.round(ann.y)})</p>
+          <p><strong>Size:</strong> ${Math.round(ann.width)}×${Math.round(ann.height)}</p>
+          <div class="flex space-x-2 mt-1">
+            <button onclick="editAnnotation('${ann.id}')"
+                    class="bg-blue-500 text-white rounded hover:bg-blue-600 px-2 py-0.5 text-sm">
+              Edit
+            </button>
+            <button onclick="deleteAnnotation('${ann.id}')"
+                    class="bg-red-500 text-white rounded hover:bg-red-600 px-2 py-0.5 text-sm">
+              Del
+            </button>
+          </div>
+        `;
+        annotationListUL.appendChild(li);
+      });
+    }
+
+    /********************************************
+     * 11) EDIT / DELETE ANNOTATION HANDLERS
+     ********************************************/
+    window.editAnnotation = (id) => {
+      const ann = annotations.find(a => a.id === id);
+      if (!ann) return;
+      editingId = id;
+      editLabelInput.value = ann.label;
+      editClassSelect.value = ann.classId || '';
+      editForm.classList.remove('hidden');
+    };
+
+    saveEditButton.addEventListener('click', () => {
+      annotations = annotations.map(ann =>
+        ann.id === editingId
+          ? { ...ann, label: editLabelInput.value, classId: editClassSelect.value || null }
+          : ann
+      );
+      editingId = null;
+      editForm.classList.add('hidden');
+      updateAnnotationListUI();
+      redrawCanvas();
+    });
+
+    cancelEditButton.addEventListener('click', () => {
+      editingId = null;
+      editForm.classList.add('hidden');
+    });
+
+    window.deleteAnnotation = (id) => {
+      annotations = annotations.filter(ann => ann.id !== id);
+      updateAnnotationListUI();
+      redrawCanvas();
+    };
+
+    /********************************************
+     * 12) INITIALIZE
+     ********************************************/
+    container.style.overflow = 'auto';
+    loadImages();
+    loadClasses();
+  </script>
+</body>
+</html>

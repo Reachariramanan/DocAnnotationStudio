@@ -1,0 +1,126 @@
+/* ==========================================================================
+   styles.css for “Image Annotation Tool (Zoom + Classes)”
+   ========================================================================== */
+
+/* 1) Container / Layout */
+.container {
+  display: flex;
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+  font-family: sans-serif;
+}
+
+/* 2) Sidebar Styling */
+.sidebar {
+  width: 280px;            /* slightly narrower than 300px */
+  min-width: 240px;
+  max-width: 300px;
+  overflow-y: auto;
+  border-right: 1px solid #e5e7eb;
+  background: #fff;
+  font-size: 0.875rem;     /* base = 14px */
+}
+
+/* 3) Compact label text */
+.label-text {
+  word-break: break-word;
+  max-width: 180px;
+  font-size: 0.85rem;
+  line-height: 1.2;
+}
+
+/* 4) Class list / annotation list items */
+.class-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.color-box {
+  width: 16px;
+  height: 16px;
+  border: 1px solid #000;
+  flex-shrink: 0;
+}
+
+/* 5) Smaller gray helper text */
+.text-gray-500 {
+  font-size: 0.85rem;
+}
+
+/* 6) Inputs and buttons in sidebar */
+input, select, button {
+  font-size: 0.875rem;    /* unify at 14px */
+}
+button {
+  padding-top: 0.4rem;    /* 6px */
+  padding-bottom: 0.4rem; /* 6px */
+}
+
+/* 7) Compact list items */
+#annotationList li,
+#classList li {
+  padding: 0.5rem;
+  margin-bottom: 0.25rem;
+  border-radius: 0.25rem;
+}
+
+/* 8) Scrollbars for long lists */
+#annotationList {
+  max-height: 240px;
+  overflow-y: auto;
+}
+#classList {
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+/* 9) The right‐hand “canvas + toolbar” wrapper */
+.canvas-wrapper {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 10) Toolbar (Zoom slider) */
+.toolbar {
+  width: 100%;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+  background: #fff;
+}
+#zoomSlider {
+  width: 140px;
+}
+#zoomValue {
+  min-width: 50px;
+}
+
+/* 11) Scrollable Canvas Container */
+.canvas-container {
+  position: absolute;
+  top: 48px;      /* height of the toolbar (approx). Adjust if you change toolbar’s height */
+  bottom: 0;
+  left: 280px;    /* same as sidebar width */
+  right: 0;
+  background: #f9fafb;
+  overflow: auto; /* needed to scroll/pan a large canvas */
+}
+
+/* 12) The <canvas> element */
+canvas {
+  display: block;         /* remove default inline‐gap */
+  transform-origin: 0 0;  /* zoom anchor at top-left */
+}
+
+/* 13) Hide the browser’s default outline on canvas, if any */
+canvas:focus {
+  outline: none;
+}
+
+/* 14) Basic body reset */
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: #f3f4f6;
+}
