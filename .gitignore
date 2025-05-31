@@ -1,3 +1,28 @@
 # Dependency directories
 node_modules/
 
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Log files
+*.log
+logs/
+
+# SQLite database files
+*.db
+*.sqlite
+*.sqlite3
+
+# macOS files
+.DS_Store
+
+# Build artifacts
+dist/
+build/
+coverage/
+
+# Editor/IDE files
+.vscode/
+.idea/
