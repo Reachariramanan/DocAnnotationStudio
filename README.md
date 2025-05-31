@@ -18,6 +18,7 @@ cd DocumentAnnotatorStudio
 2. Install dependencies including SQLite:
 ```bash
 npm install
+npm install express sqlite3
 ```
 
 3. The SQLite database (`high_res_ocr_results.db`) is already included in the project.
